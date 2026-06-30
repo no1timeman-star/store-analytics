@@ -60,6 +60,8 @@ const blankAmounts = () => ({
   productShoes: "",
   productWomen: "",
   productVisits: "",
+  rentCost: "",
+  laborCost: "",
 });
 
 const emptyForm = (year) => ({
@@ -78,8 +80,14 @@ function deriveTotals(rec) {
   const productShoes = Number(rec.productShoes) || 0;
   const productWomen = Number(rec.productWomen) || 0;
   const productVisits = Number(rec.productVisits) || 0;
+  const rentCost = Number(rec.rentCost) || 0;
+  const laborCost = Number(rec.laborCost) || 0;
   const productTotal = productSuit + productCasual + productShoes + productWomen;
   const grandTotal = suitRental + productTotal;
+  const totalCost = rentCost + laborCost;
+  const hasCostData = rentCost > 0 || laborCost > 0;
+  const netProfit = hasCostData ? grandTotal - totalCost : null;
+  const profitMargin = hasCostData && grandTotal > 0 ? (netProfit / grandTotal) * 100 : null;
   return {
     suitRental,
     suitRentalVisits,
@@ -90,6 +98,12 @@ function deriveTotals(rec) {
     productVisits,
     productTotal,
     grandTotal,
+    rentCost,
+    laborCost,
+    totalCost,
+    hasCostData,
+    netProfit,
+    profitMargin,
     suitRentalAvgValue: suitRentalVisits > 0 ? suitRental / suitRentalVisits : null,
     productAvgValue: productVisits > 0 ? productTotal / productVisits : null,
   };
@@ -188,6 +202,38 @@ function SimpleTooltip({ active, payload, totalForPercent }) {
   );
 }
 
+/* 損益比較圖專用 Tooltip：業績／成本／淨利同時列出，淨利為 null 時顯示「尚無成本資料」 */
+function StoreProfitTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="ssa-tooltip">
+      <div className="ssa-tooltip-title">{label}</div>
+      <div className="ssa-tooltip-row">
+        <span className="ssa-tooltip-dot" style={{ background: "#C9A961" }} />
+        <span className="ssa-tooltip-name">業績</span>
+        <span className="ssa-tooltip-val">{currencyFmt(row.業績)}</span>
+      </div>
+      {row.hasCost && (
+        <div className="ssa-tooltip-row">
+          <span className="ssa-tooltip-dot" style={{ background: "#9CA3B8" }} />
+          <span className="ssa-tooltip-name">成本</span>
+          <span className="ssa-tooltip-val">{currencyFmt(row.成本)}</span>
+        </div>
+      )}
+      <div className="ssa-tooltip-row">
+        <span
+          className="ssa-tooltip-dot"
+          style={{ background: row.淨利 === null ? "#E8E3D8" : row.淨利 >= 0 ? "#3D7A5C" : "#B3463F" }}
+        />
+        <span className="ssa-tooltip-name">淨利</span>
+        <span className="ssa-tooltip-val">{row.淨利 !== null ? currencyFmt(row.淨利) : "尚無成本資料"}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------------- */
 /* 主程式                                                                    */
 /* ----------------------------------------------------------------------- */
@@ -251,6 +297,8 @@ function Dashboard({ onSignOut }) {
       productShoes: String(rec.productShoes ?? ""),
       productWomen: String(rec.productWomen ?? ""),
       productVisits: String(rec.productVisits ?? ""),
+      rentCost: String(rec.rentCost ?? ""),
+      laborCost: String(rec.laborCost ?? ""),
     });
     setEditingId(rec.id);
     setNotice(null);
@@ -385,6 +433,55 @@ function Dashboard({ onSignOut }) {
     [yearRecords]
   );
 
+  const hasCostData = useMemo(() => yearRecords.some((r) => r.hasCostData), [yearRecords]);
+
+  // 淨利趨勢：依目前選定的門市篩選範圍，逐月計算業績、成本、淨利，並累加成「年度累積淨利」
+  // 只填寫部分月份的成本也沒關係，沒填的月份淨利會是 null（圖上斷線），不會被誤判成「淨利是 0」
+  const profitTrendData = useMemo(() => {
+    let cumulative = 0;
+    let cumulativeStarted = false;
+    return MONTHS.map((m) => {
+      const monthRecs = structureScope.filter((r) => r.month === m);
+      const revenue = monthRecs.reduce((s, r) => s + r.grandTotal, 0);
+      const recordsWithCost = monthRecs.filter((r) => r.hasCostData);
+      const hasCost = recordsWithCost.length > 0;
+      const cost = recordsWithCost.reduce((s, r) => s + r.totalCost, 0);
+      const monthRevenueWithCost = recordsWithCost.reduce((s, r) => s + r.grandTotal, 0);
+      const netProfit = hasCost ? monthRevenueWithCost - cost : null;
+
+      if (netProfit !== null) {
+        cumulative += netProfit;
+        cumulativeStarted = true;
+      }
+
+      return {
+        monthLabel: `${m}月`,
+        業績: revenue,
+        淨利: netProfit,
+        累積淨利: cumulativeStarted ? cumulative : null,
+      };
+    });
+  }, [structureScope]);
+
+  // 各門市的年度損益比較：用來對照「業績最高」是否等於「淨利最高」
+  const storeProfitData = useMemo(() => {
+    return STORES.map((s) => {
+      const storeRecs = yearRecords.filter((r) => r.storeId === s.id);
+      const revenue = storeRecs.reduce((sum, r) => sum + r.grandTotal, 0);
+      const cost = storeRecs.reduce((sum, r) => sum + r.totalCost, 0);
+      const recordsWithCost = storeRecs.filter((r) => r.hasCostData);
+      const hasCost = recordsWithCost.length > 0;
+      return {
+        name: s.name,
+        color: s.color,
+        業績: revenue,
+        成本: hasCost ? cost : 0,
+        淨利: hasCost ? revenue - cost : null,
+        hasCost,
+      };
+    });
+  }, [yearRecords]);
+
   const kpis = useMemo(() => {
     const grand = yearRecords.reduce((s, r) => s + r.grandTotal, 0);
     const rental = yearRecords.reduce((s, r) => s + r.suitRental, 0);
@@ -396,6 +493,16 @@ function Dashboard({ onSignOut }) {
     const monthsWithData = new Set(yearRecords.map((r) => r.month)).size;
     const totalRentalVisits = yearRecords.reduce((s, r) => s + r.suitRentalVisits, 0);
     const totalProductVisits = yearRecords.reduce((s, r) => s + r.productVisits, 0);
+
+    const recordsWithCost = yearRecords.filter((r) => r.hasCostData);
+    const totalCost = recordsWithCost.reduce((s, r) => s + r.totalCost, 0);
+    const grandWithCost = recordsWithCost.reduce((s, r) => s + r.grandTotal, 0);
+    const netProfit = recordsWithCost.length > 0 ? grandWithCost - totalCost : null;
+    const profitMargin = netProfit !== null && grandWithCost > 0 ? (netProfit / grandWithCost) * 100 : null;
+    const bestByProfit = [...storeProfitData]
+      .filter((s) => s.hasCost)
+      .sort((a, b) => b.淨利 - a.淨利)[0];
+
     return {
       grand,
       rentalPct: grand ? ((rental / grand) * 100).toFixed(1) : "0.0",
@@ -404,8 +511,11 @@ function Dashboard({ onSignOut }) {
       avgMonthly: monthsWithData ? grand / monthsWithData : 0,
       rentalAvgValue: totalRentalVisits > 0 ? rental / totalRentalVisits : null,
       productAvgValue: totalProductVisits > 0 ? product / totalProductVisits : null,
+      netProfit,
+      profitMargin,
+      bestByProfit,
     };
-  }, [yearRecords]);
+  }, [yearRecords, storeProfitData]);
 
   /* -------------------------------- 表格資料 ------------------------------ */
 
@@ -630,6 +740,11 @@ function Dashboard({ onSignOut }) {
           padding: 12px 12px 4px;
           margin-bottom: 14px;
         }
+        .ssa-subgroup.cost {
+          border-style: solid;
+          border-color: rgba(91,140,123,0.35);
+          background: rgba(91,140,123,0.06);
+        }
         .ssa-subgroup-title {
           font-size: 12px;
           color: #C7CCDB;
@@ -645,6 +760,12 @@ function Dashboard({ onSignOut }) {
         }
         .ssa-subgrid .ssa-field { margin-bottom: 10px; }
         .ssa-subgrid label { font-size: 11.5px; }
+        .ssa-cost-hint {
+          font-size: 11px;
+          color: #9CA3B8;
+          line-height: 1.5;
+          padding: 0 0 10px;
+        }
 
         .ssa-total-box {
           background: rgba(255,255,255,0.06);
@@ -657,6 +778,12 @@ function Dashboard({ onSignOut }) {
         }
         .ssa-total-box span:first-child { font-size: 13px; color: #C7CCDB; }
         .ssa-total-box strong { font-size: 18px; color: var(--gold); font-family: 'Noto Serif TC', serif; }
+        .ssa-total-box.profit span:first-child { display: flex; flex-direction: column; gap: 2px; }
+        .ssa-total-box.profit em { font-style: normal; font-size: 11px; color: #9CA3B8; }
+        .ssa-total-box.profit.positive { background: rgba(61,122,92,0.14); border: 1px solid rgba(61,122,92,0.35); }
+        .ssa-total-box.profit.positive strong { color: #6FB892; }
+        .ssa-total-box.profit.negative { background: rgba(179,70,63,0.14); border: 1px solid rgba(179,70,63,0.35); }
+        .ssa-total-box.profit.negative strong { color: #E08E85; }
 
         .ssa-submit {
           width: 100%;
@@ -885,7 +1012,7 @@ function Dashboard({ onSignOut }) {
         table.ssa-table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 1320px;
+          min-width: 1680px;
           font-size: 13px;
         }
         table.ssa-table th {
@@ -921,6 +1048,8 @@ function Dashboard({ onSignOut }) {
         }
         .ssa-store-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .ssa-grand { font-weight: 700; color: var(--ink); }
+        .ssa-profit-pos { color: var(--success); font-weight: 700; }
+        .ssa-profit-neg { color: var(--danger); font-weight: 700; }
         .ssa-actions { display: flex; gap: 6px; justify-content: flex-end; }
         .ssa-icon-btn {
           border: 1px solid var(--line);
@@ -1095,10 +1224,58 @@ function Dashboard({ onSignOut }) {
             )}
           </div>
 
+          <div className="ssa-subgroup cost">
+            <div className="ssa-subgroup-title">
+              <span>當月固定成本</span>
+              <b>小計 {numberFmt(totalsForForm.totalCost)}</b>
+            </div>
+            <div className="ssa-subgrid">
+              <div className="ssa-field">
+                <label htmlFor="ssa-rent-cost">店租成本（元）</label>
+                <input
+                  id="ssa-rent-cost"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="0"
+                  value={form.rentCost}
+                  onChange={(e) => updateField("rentCost", e.target.value)}
+                />
+              </div>
+              <div className="ssa-field">
+                <label htmlFor="ssa-labor-cost">人事成本（元）</label>
+                <input
+                  id="ssa-labor-cost"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="0"
+                  value={form.laborCost}
+                  onChange={(e) => updateField("laborCost", e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="ssa-cost-hint">
+              不填寫的話，這個月的淨利／淨利率不會被計算（避免被誤判成「成本是 0」）
+            </div>
+          </div>
+
           <div className="ssa-total-box">
             <span>總業績（租借＋購買）</span>
             <strong>{currencyFmt(totalsForForm.grandTotal)}</strong>
           </div>
+
+          {totalsForForm.hasCostData && (
+            <div className={`ssa-total-box profit ${totalsForForm.netProfit >= 0 ? "positive" : "negative"}`}>
+              <span>
+                淨利（業績－成本）
+                {totalsForForm.profitMargin !== null && (
+                  <em> ・ 淨利率 {totalsForForm.profitMargin.toFixed(1)}%</em>
+                )}
+              </span>
+              <strong>{currencyFmt(totalsForForm.netProfit)}</strong>
+            </div>
+          )}
 
           <button type="submit" className="ssa-submit" disabled={submitting}>
             {submitting ? (
@@ -1217,9 +1394,15 @@ function Dashboard({ onSignOut }) {
                     value={`${kpis.rentalPct}% ／ ${kpis.productPct}%`}
                   />
                   <KpiCard
-                    label="年度最佳門市"
+                    label="年度業績最佳門市"
                     value={kpis.best && kpis.best.total > 0 ? kpis.best.name : "—"}
-                    sub={kpis.best && kpis.best.total > 0 ? currencyFmt(kpis.best.total) : "尚無資料"}
+                    sub={
+                      kpis.best && kpis.best.total > 0
+                        ? kpis.bestByProfit && kpis.bestByProfit.name !== kpis.best.name
+                          ? `業績第一，但淨利第一是「${kpis.bestByProfit.name}」`
+                          : currencyFmt(kpis.best.total)
+                        : "尚無資料"
+                    }
                     accent="#C9A961"
                   />
                   <KpiCard
@@ -1231,6 +1414,24 @@ function Dashboard({ onSignOut }) {
                     label="年度購物客單價"
                     value={kpis.productAvgValue !== null ? currencyFmt(kpis.productAvgValue) : "尚無人次資料"}
                     sub="購物總額 ÷ 購物人次"
+                  />
+                  <KpiCard
+                    label="年度淨利（業績－成本）"
+                    value={kpis.netProfit !== null ? currencyFmt(kpis.netProfit) : "尚無成本資料"}
+                    sub={kpis.netProfit !== null ? "已扣除店租與人事成本" : "請在表單填寫店租／人事成本"}
+                    accent={kpis.netProfit !== null ? (kpis.netProfit >= 0 ? "#3D7A5C" : "#B3463F") : undefined}
+                  />
+                  <KpiCard
+                    label="年度淨利率"
+                    value={kpis.profitMargin !== null ? `${kpis.profitMargin.toFixed(1)}%` : "尚無成本資料"}
+                    sub="淨利 ÷ 總業績"
+                    accent={kpis.profitMargin !== null ? (kpis.profitMargin >= 0 ? "#3D7A5C" : "#B3463F") : undefined}
+                  />
+                  <KpiCard
+                    label="年度淨利最佳門市"
+                    value={kpis.bestByProfit ? kpis.bestByProfit.name : "尚無成本資料"}
+                    sub={kpis.bestByProfit ? currencyFmt(kpis.bestByProfit.淨利) : "請在表單填寫各店成本"}
+                    accent="#3D7A5C"
                   />
                 </div>
 
@@ -1432,6 +1633,116 @@ function Dashboard({ onSignOut }) {
                     )}
                   </div>
                 </div>
+
+                <div className="ssa-card">
+                  <SectionTitle
+                    icon={<TrendingUp size={17} color="#3D7A5C" />}
+                    eyebrow="PROFIT TREND"
+                    title="淨利趨勢（逐月 vs 年度累積）"
+                  />
+                  {!hasCostData ? (
+                    <EmptyState
+                      text="尚未填寫任何月份的成本資料"
+                      hint="在左側表單填寫「店租成本」與「人事成本」後，這裡會自動畫出淨利隨時間變化的趨勢。"
+                    />
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={profitTrendData} margin={{ top: 6, right: 16, left: 0, bottom: 0 }}>
+                          <CartesianGrid stroke="#E8E3D8" vertical={false} />
+                          <XAxis
+                            dataKey="monthLabel"
+                            tick={{ fill: "#5B6478", fontSize: 12 }}
+                            axisLine={{ stroke: "#E8E3D8" }}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            tick={{ fill: "#5B6478", fontSize: 12 }}
+                            tickFormatter={(v) => compactFmt(v)}
+                            axisLine={false}
+                            tickLine={false}
+                            width={56}
+                          />
+                          <Tooltip content={<LineTooltip />} />
+                          <Legend wrapperStyle={{ fontSize: 12.5, paddingTop: 14 }} iconType="circle" />
+                          <Line
+                            type="monotone"
+                            dataKey="淨利"
+                            stroke="#3D7A5C"
+                            strokeWidth={2.25}
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            connectNulls={false}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="累積淨利"
+                            stroke="#C9A961"
+                            strokeWidth={2}
+                            strokeDasharray="5 4"
+                            dot={false}
+                            activeDot={{ r: 5 }}
+                            connectNulls={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <div className="ssa-topbar-sub" style={{ marginTop: -4, marginBottom: 14 }}>
+                        實線「淨利」是當月損益，虛線「累積淨利」是年初至今的加總，沒填成本的月份會自動斷線而非視為 0
+                        ・{dashStore === "all" ? "目前顯示全部門市合計" : `目前顯示「${storeOf(dashStore).name}」單店資料`}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="ssa-card">
+                  <SectionTitle
+                    icon={<BarChart3 size={17} color="#3D7A5C" />}
+                    eyebrow="STORE PROFIT COMPARISON"
+                    title="各門市年度損益比較"
+                  />
+                  {!hasCostData ? (
+                    <EmptyState
+                      text="尚未填寫任何門市的成本資料"
+                      hint="在左側表單填寫「店租成本」與「人事成本」後，這裡會自動算出各店的真實淨利，而不只是業績排名。"
+                    />
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <BarChart data={storeProfitData} margin={{ top: 6, right: 16, left: 0, bottom: 0 }}>
+                          <CartesianGrid stroke="#E8E3D8" vertical={false} />
+                          <XAxis
+                            dataKey="name"
+                            tick={{ fill: "#5B6478", fontSize: 12 }}
+                            axisLine={{ stroke: "#E8E3D8" }}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            tick={{ fill: "#5B6478", fontSize: 12 }}
+                            tickFormatter={(v) => compactFmt(v)}
+                            axisLine={false}
+                            tickLine={false}
+                            width={56}
+                          />
+                          <Tooltip content={<StoreProfitTooltip />} />
+                          <Legend wrapperStyle={{ fontSize: 12.5, paddingTop: 14 }} iconType="circle" />
+                          <Bar dataKey="業績" fill="#C9A961" radius={[4, 4, 0, 0]} maxBarSize={42} />
+                          <Bar dataKey="成本" fill="#9CA3B8" radius={[4, 4, 0, 0]} maxBarSize={42} />
+                          <Bar dataKey="淨利" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                            {storeProfitData.map((entry) => (
+                              <Cell
+                                key={entry.name}
+                                fill={entry.淨利 === null ? "#E8E3D8" : entry.淨利 >= 0 ? "#3D7A5C" : "#B3463F"}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div className="ssa-topbar-sub" style={{ marginTop: -4, marginBottom: 4 }}>
+                        灰色「淨利」長條代表該門市尚未填寫成本資料，暫無法計算
+                      </div>
+                    </>
+                  )}
+                </div>
               </>
             )}
           </>
@@ -1489,6 +1800,10 @@ function Dashboard({ onSignOut }) {
                       <th>購買人次</th>
                       <th>購買客單價</th>
                       <th>總業績</th>
+                      <th>店租成本</th>
+                      <th>人事成本</th>
+                      <th>淨利</th>
+                      <th>淨利率</th>
                       <th>操作</th>
                     </tr>
                   </thead>
@@ -1516,6 +1831,14 @@ function Dashboard({ onSignOut }) {
                           <td>{r.productVisits > 0 ? `${numberFmt(r.productVisits)} 人次` : "—"}</td>
                           <td>{r.productAvgValue !== null ? currencyFmt(r.productAvgValue) : "—"}</td>
                           <td className="ssa-grand">{currencyFmt(r.grandTotal)}</td>
+                          <td>{r.rentCost > 0 ? numberFmt(r.rentCost) : "—"}</td>
+                          <td>{r.laborCost > 0 ? numberFmt(r.laborCost) : "—"}</td>
+                          <td className={r.netProfit !== null ? (r.netProfit >= 0 ? "ssa-profit-pos" : "ssa-profit-neg") : ""}>
+                            {r.netProfit !== null ? currencyFmt(r.netProfit) : "—"}
+                          </td>
+                          <td className={r.profitMargin !== null ? (r.profitMargin >= 0 ? "ssa-profit-pos" : "ssa-profit-neg") : ""}>
+                            {r.profitMargin !== null ? `${r.profitMargin.toFixed(1)}%` : "—"}
+                          </td>
                           <td>
                             <div className="ssa-actions">
                               <button className="ssa-icon-btn" title="編輯" onClick={() => loadIntoForm(r)}>
