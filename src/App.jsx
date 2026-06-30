@@ -1159,7 +1159,7 @@ function Dashboard({ onSignOut }) {
                 id="ssa-rental"
                 type="number"
                 min="0"
-                step="100"
+                step="any"
                 placeholder="0"
                 value={form.suitRental}
                 onChange={(e) => updateField("suitRental", e.target.value)}
@@ -1197,7 +1197,7 @@ function Dashboard({ onSignOut }) {
                     id={`ssa-${c.key}`}
                     type="number"
                     min="0"
-                    step="100"
+                    step="any"
                     placeholder="0"
                     value={form[c.key]}
                     onChange={(e) => updateField(c.key, e.target.value)}
@@ -1236,7 +1236,7 @@ function Dashboard({ onSignOut }) {
                   id="ssa-rent-cost"
                   type="number"
                   min="0"
-                  step="1000"
+                  step="any"
                   placeholder="0"
                   value={form.rentCost}
                   onChange={(e) => updateField("rentCost", e.target.value)}
@@ -1248,7 +1248,7 @@ function Dashboard({ onSignOut }) {
                   id="ssa-labor-cost"
                   type="number"
                   min="0"
-                  step="1000"
+                  step="any"
                   placeholder="0"
                   value={form.laborCost}
                   onChange={(e) => updateField("laborCost", e.target.value)}
