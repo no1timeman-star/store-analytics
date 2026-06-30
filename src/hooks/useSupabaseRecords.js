@@ -10,7 +10,16 @@ function fromRow(row) {
   const suitRental = Number(row.suit_rental) || 0;
   const suitRentalVisits = Number(row.suit_rental_visits) || 0;
   const productVisits = Number(row.product_visits) || 0;
+  const rentCost = Number(row.rent_cost) || 0;
+  const laborCost = Number(row.labor_cost) || 0;
   const productTotal = productSuit + productCasual + productShoes + productWomen;
+  const grandTotal = suitRental + productTotal;
+  const totalCost = rentCost + laborCost;
+  // 成本欄位為 0 時，無法分辨是「真的沒有成本」還是「還沒填」，
+  // 所以用 hasCostData 標記是否已經輸入過成本，避免儀表板把「未填」誤判成「淨利 100%」
+  const hasCostData = rentCost > 0 || laborCost > 0;
+  const netProfit = hasCostData ? grandTotal - totalCost : null;
+  const profitMargin = hasCostData && grandTotal > 0 ? (netProfit / grandTotal) * 100 : null;
   return {
     id: row.id,
     year: row.year,
@@ -24,7 +33,13 @@ function fromRow(row) {
     productWomen,
     productVisits,
     productTotal,
-    grandTotal: suitRental + productTotal,
+    grandTotal,
+    rentCost,
+    laborCost,
+    totalCost,
+    hasCostData,
+    netProfit,
+    profitMargin,
     // 客單價：人次為 0 時代表沒有資料可算，回傳 null 而不是 0，避免圖表誤判成「真的是 0 元」
     suitRentalAvgValue: suitRentalVisits > 0 ? suitRental / suitRentalVisits : null,
     productAvgValue: productVisits > 0 ? productTotal / productVisits : null,
@@ -43,6 +58,8 @@ function toRow(record) {
     product_shoes: record.productShoes,
     product_women: record.productWomen,
     product_visits: record.productVisits,
+    rent_cost: record.rentCost,
+    labor_cost: record.laborCost,
   };
 }
 

@@ -22,6 +22,8 @@ create table if not exists public.records (
   product_shoes numeric not null default 0 check (product_shoes >= 0),
   product_women numeric not null default 0 check (product_women >= 0),
   product_visits integer not null default 0 check (product_visits >= 0),
+  rent_cost numeric not null default 0 check (rent_cost >= 0),
+  labor_cost numeric not null default 0 check (labor_cost >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
 
@@ -29,9 +31,11 @@ create table if not exists public.records (
   unique (year, month, store_id)
 );
 
-comment on table public.records is '各門市每月業績原始紀錄（西裝租借 + 商品購買四子項目，以及各自的服務人次，用於計算客單價）';
+comment on table public.records is '各門市每月業績原始紀錄（西裝租借 + 商品購買四子項目、各自的服務人次，以及店租／人事成本，用於計算客單價與損益）';
 comment on column public.records.suit_rental_visits is '西裝租借服務人次（同一人若重複租借，每次都計一筆，非不重複客人數）';
 comment on column public.records.product_visits is '商品購買服務人次（同一人若重複購買，每次都計一筆，非不重複客人數）';
+comment on column public.records.rent_cost is '當月當店的店租成本（元）';
+comment on column public.records.labor_cost is '當月當店的人事成本（元，含薪資、勞健保等人力相關支出）';
 
 -- updated_at 自動更新
 create or replace function public.set_updated_at()
