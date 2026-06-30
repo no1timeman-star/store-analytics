@@ -8,6 +8,8 @@ function fromRow(row) {
   const productShoes = Number(row.product_shoes) || 0;
   const productWomen = Number(row.product_women) || 0;
   const suitRental = Number(row.suit_rental) || 0;
+  const suitRentalVisits = Number(row.suit_rental_visits) || 0;
+  const productVisits = Number(row.product_visits) || 0;
   const productTotal = productSuit + productCasual + productShoes + productWomen;
   return {
     id: row.id,
@@ -15,12 +17,17 @@ function fromRow(row) {
     month: row.month,
     storeId: row.store_id,
     suitRental,
+    suitRentalVisits,
     productSuit,
     productCasual,
     productShoes,
     productWomen,
+    productVisits,
     productTotal,
     grandTotal: suitRental + productTotal,
+    // 客單價：人次為 0 時代表沒有資料可算，回傳 null 而不是 0，避免圖表誤判成「真的是 0 元」
+    suitRentalAvgValue: suitRentalVisits > 0 ? suitRental / suitRentalVisits : null,
+    productAvgValue: productVisits > 0 ? productTotal / productVisits : null,
   };
 }
 
@@ -30,10 +37,12 @@ function toRow(record) {
     month: record.month,
     store_id: record.storeId,
     suit_rental: record.suitRental,
+    suit_rental_visits: record.suitRentalVisits,
     product_suit: record.productSuit,
     product_casual: record.productCasual,
     product_shoes: record.productShoes,
     product_women: record.productWomen,
+    product_visits: record.productVisits,
   };
 }
 

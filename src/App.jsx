@@ -54,10 +54,12 @@ const storeOf = (id) => STORES.find((s) => s.id === id);
 
 const blankAmounts = () => ({
   suitRental: "",
+  suitRentalVisits: "",
   productSuit: "",
   productCasual: "",
   productShoes: "",
   productWomen: "",
+  productVisits: "",
 });
 
 const emptyForm = (year) => ({
@@ -70,13 +72,27 @@ const emptyForm = (year) => ({
 
 function deriveTotals(rec) {
   const suitRental = Number(rec.suitRental) || 0;
+  const suitRentalVisits = Number(rec.suitRentalVisits) || 0;
   const productSuit = Number(rec.productSuit) || 0;
   const productCasual = Number(rec.productCasual) || 0;
   const productShoes = Number(rec.productShoes) || 0;
   const productWomen = Number(rec.productWomen) || 0;
+  const productVisits = Number(rec.productVisits) || 0;
   const productTotal = productSuit + productCasual + productShoes + productWomen;
   const grandTotal = suitRental + productTotal;
-  return { suitRental, productSuit, productCasual, productShoes, productWomen, productTotal, grandTotal };
+  return {
+    suitRental,
+    suitRentalVisits,
+    productSuit,
+    productCasual,
+    productShoes,
+    productWomen,
+    productVisits,
+    productTotal,
+    grandTotal,
+    suitRentalAvgValue: suitRentalVisits > 0 ? suitRental / suitRentalVisits : null,
+    productAvgValue: productVisits > 0 ? productTotal / productVisits : null,
+  };
 }
 
 /* ----------------------------------------------------------------------- */
@@ -229,10 +245,12 @@ function Dashboard({ onSignOut }) {
       month: rec.month,
       storeId: rec.storeId,
       suitRental: String(rec.suitRental ?? ""),
+      suitRentalVisits: String(rec.suitRentalVisits ?? ""),
       productSuit: String(rec.productSuit ?? ""),
       productCasual: String(rec.productCasual ?? ""),
       productShoes: String(rec.productShoes ?? ""),
       productWomen: String(rec.productWomen ?? ""),
+      productVisits: String(rec.productVisits ?? ""),
     });
     setEditingId(rec.id);
     setNotice(null);
@@ -346,6 +364,27 @@ function Dashboard({ onSignOut }) {
 
   const productCatTotal = productCatData.reduce((s, d) => s + d.value, 0);
 
+  // 客單價趨勢：依目前選定的門市篩選範圍，逐月計算「租借客單價」與「購物客單價」
+  const avgValueTrendData = useMemo(() => {
+    return MONTHS.map((m) => {
+      const monthRecs = structureScope.filter((r) => r.month === m);
+      const rentalAmount = monthRecs.reduce((s, r) => s + r.suitRental, 0);
+      const rentalVisits = monthRecs.reduce((s, r) => s + r.suitRentalVisits, 0);
+      const productAmount = monthRecs.reduce((s, r) => s + r.productTotal, 0);
+      const productVisits = monthRecs.reduce((s, r) => s + r.productVisits, 0);
+      return {
+        monthLabel: `${m}月`,
+        租借客單價: rentalVisits > 0 ? Math.round(rentalAmount / rentalVisits) : null,
+        購物客單價: productVisits > 0 ? Math.round(productAmount / productVisits) : null,
+      };
+    });
+  }, [structureScope]);
+
+  const hasVisitData = useMemo(
+    () => yearRecords.some((r) => r.suitRentalVisits > 0 || r.productVisits > 0),
+    [yearRecords]
+  );
+
   const kpis = useMemo(() => {
     const grand = yearRecords.reduce((s, r) => s + r.grandTotal, 0);
     const rental = yearRecords.reduce((s, r) => s + r.suitRental, 0);
@@ -355,12 +394,16 @@ function Dashboard({ onSignOut }) {
       total: yearRecords.filter((r) => r.storeId === s.id).reduce((sum, r) => sum + r.grandTotal, 0),
     })).sort((a, b) => b.total - a.total);
     const monthsWithData = new Set(yearRecords.map((r) => r.month)).size;
+    const totalRentalVisits = yearRecords.reduce((s, r) => s + r.suitRentalVisits, 0);
+    const totalProductVisits = yearRecords.reduce((s, r) => s + r.productVisits, 0);
     return {
       grand,
       rentalPct: grand ? ((rental / grand) * 100).toFixed(1) : "0.0",
       productPct: grand ? ((product / grand) * 100).toFixed(1) : "0.0",
       best: byStore[0],
       avgMonthly: monthsWithData ? grand / monthsWithData : 0,
+      rentalAvgValue: totalRentalVisits > 0 ? rental / totalRentalVisits : null,
+      productAvgValue: totalProductVisits > 0 ? product / totalProductVisits : null,
     };
   }, [yearRecords]);
 
@@ -574,6 +617,13 @@ function Dashboard({ onSignOut }) {
         .ssa-root input[type="number"]::-webkit-outer-spin-button,
         .ssa-root input[type="number"]::-webkit-inner-spin-button { opacity: 0.5; }
 
+        .ssa-avg-hint {
+          font-size: 12px;
+          color: #C7CCDB;
+          margin: -8px 0 14px;
+          padding-left: 2px;
+        }
+        .ssa-avg-hint b { color: var(--gold); font-weight: 700; }
         .ssa-subgroup {
           border: 1px dashed rgba(255,255,255,0.18);
           border-radius: 8px;
@@ -724,7 +774,7 @@ function Dashboard({ onSignOut }) {
         /* ---- KPI ---- */
         .ssa-kpi-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 14px;
           margin-bottom: 28px;
         }
@@ -835,7 +885,7 @@ function Dashboard({ onSignOut }) {
         table.ssa-table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 920px;
+          min-width: 1320px;
           font-size: 13px;
         }
         table.ssa-table th {
@@ -973,18 +1023,37 @@ function Dashboard({ onSignOut }) {
             </select>
           </div>
 
-          <div className="ssa-field">
-            <label htmlFor="ssa-rental">西裝租借業績（元）</label>
-            <input
-              id="ssa-rental"
-              type="number"
-              min="0"
-              step="100"
-              placeholder="0"
-              value={form.suitRental}
-              onChange={(e) => updateField("suitRental", e.target.value)}
-            />
+          <div className="ssa-row">
+            <div className="ssa-field">
+              <label htmlFor="ssa-rental">西裝租借業績（元）</label>
+              <input
+                id="ssa-rental"
+                type="number"
+                min="0"
+                step="100"
+                placeholder="0"
+                value={form.suitRental}
+                onChange={(e) => updateField("suitRental", e.target.value)}
+              />
+            </div>
+            <div className="ssa-field">
+              <label htmlFor="ssa-rental-visits">租借人次</label>
+              <input
+                id="ssa-rental-visits"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={form.suitRentalVisits}
+                onChange={(e) => updateField("suitRentalVisits", e.target.value)}
+              />
+            </div>
           </div>
+          {totalsForForm.suitRentalAvgValue !== null && (
+            <div className="ssa-avg-hint">
+              租借客單價 ≈ <b>{currencyFmt(totalsForForm.suitRentalAvgValue)}</b> / 人次
+            </div>
+          )}
 
           <div className="ssa-subgroup">
             <div className="ssa-subgroup-title">
@@ -1007,6 +1076,23 @@ function Dashboard({ onSignOut }) {
                 </div>
               ))}
             </div>
+            <div className="ssa-field" style={{ marginTop: 2 }}>
+              <label htmlFor="ssa-product-visits">商品購買人次（全部子項目合計）</label>
+              <input
+                id="ssa-product-visits"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={form.productVisits}
+                onChange={(e) => updateField("productVisits", e.target.value)}
+              />
+            </div>
+            {totalsForForm.productAvgValue !== null && (
+              <div className="ssa-avg-hint">
+                購物客單價 ≈ <b>{currencyFmt(totalsForForm.productAvgValue)}</b> / 人次
+              </div>
+            )}
           </div>
 
           <div className="ssa-total-box">
@@ -1136,6 +1222,16 @@ function Dashboard({ onSignOut }) {
                     sub={kpis.best && kpis.best.total > 0 ? currencyFmt(kpis.best.total) : "尚無資料"}
                     accent="#C9A961"
                   />
+                  <KpiCard
+                    label="年度租借客單價"
+                    value={kpis.rentalAvgValue !== null ? currencyFmt(kpis.rentalAvgValue) : "尚無人次資料"}
+                    sub="租借總額 ÷ 租借人次"
+                  />
+                  <KpiCard
+                    label="年度購物客單價"
+                    value={kpis.productAvgValue !== null ? currencyFmt(kpis.productAvgValue) : "尚無人次資料"}
+                    sub="購物總額 ÷ 購物人次"
+                  />
                 </div>
 
                 <div className="ssa-card">
@@ -1177,6 +1273,63 @@ function Dashboard({ onSignOut }) {
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+
+                <div className="ssa-card">
+                  <SectionTitle
+                    icon={<TrendingUp size={17} color="#C9A961" />}
+                    eyebrow="AVERAGE SPEND PER VISIT"
+                    title="客單價趨勢（租借 vs 購物）"
+                  />
+                  {!hasVisitData ? (
+                    <EmptyState
+                      text="此篩選範圍尚無人次資料"
+                      hint="在左側表單填寫「租借人次」與「商品購買人次」後，這裡會自動算出客單價趨勢。"
+                    />
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={avgValueTrendData} margin={{ top: 6, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke="#E8E3D8" vertical={false} />
+                        <XAxis
+                          dataKey="monthLabel"
+                          tick={{ fill: "#5B6478", fontSize: 12 }}
+                          axisLine={{ stroke: "#E8E3D8" }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: "#5B6478", fontSize: 12 }}
+                          tickFormatter={(v) => compactFmt(v)}
+                          axisLine={false}
+                          tickLine={false}
+                          width={56}
+                        />
+                        <Tooltip content={<LineTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: 12.5, paddingTop: 14 }} iconType="circle" />
+                        <Line
+                          type="monotone"
+                          dataKey="租借客單價"
+                          stroke={STRUCT_COLORS.rental}
+                          strokeWidth={2.25}
+                          dot={{ r: 3 }}
+                          activeDot={{ r: 5 }}
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="購物客單價"
+                          stroke={STRUCT_COLORS.product}
+                          strokeWidth={2.25}
+                          dot={{ r: 3 }}
+                          activeDot={{ r: 5 }}
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                  <div className="ssa-topbar-sub" style={{ marginTop: -4, marginBottom: 14 }}>
+                    {dashStore === "all" ? "目前顯示全部門市合計" : `目前顯示「${storeOf(dashStore).name}」單店資料`}
+                    ，可透過上方「結構圖門市篩選」切換範圍
+                  </div>
                 </div>
 
                 <div className="ssa-grid-2">
@@ -1326,11 +1479,15 @@ function Dashboard({ onSignOut }) {
                       <th>月份</th>
                       <th>門市</th>
                       <th>西裝租借</th>
+                      <th>租借人次</th>
+                      <th>租借客單價</th>
                       <th>西裝類</th>
                       <th>休閒類</th>
                       <th>鞋子類</th>
                       <th>女裝類</th>
                       <th>商品購買合計</th>
+                      <th>購買人次</th>
+                      <th>購買客單價</th>
                       <th>總業績</th>
                       <th>操作</th>
                     </tr>
@@ -1349,11 +1506,15 @@ function Dashboard({ onSignOut }) {
                             </span>
                           </td>
                           <td>{numberFmt(r.suitRental)}</td>
+                          <td>{r.suitRentalVisits > 0 ? `${numberFmt(r.suitRentalVisits)} 人次` : "—"}</td>
+                          <td>{r.suitRentalAvgValue !== null ? currencyFmt(r.suitRentalAvgValue) : "—"}</td>
                           <td>{numberFmt(r.productSuit)}</td>
                           <td>{numberFmt(r.productCasual)}</td>
                           <td>{numberFmt(r.productShoes)}</td>
                           <td>{numberFmt(r.productWomen)}</td>
                           <td>{numberFmt(r.productTotal)}</td>
+                          <td>{r.productVisits > 0 ? `${numberFmt(r.productVisits)} 人次` : "—"}</td>
+                          <td>{r.productAvgValue !== null ? currencyFmt(r.productAvgValue) : "—"}</td>
                           <td className="ssa-grand">{currencyFmt(r.grandTotal)}</td>
                           <td>
                             <div className="ssa-actions">
